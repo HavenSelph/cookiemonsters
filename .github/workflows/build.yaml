@@ -43,7 +43,7 @@ jobs:
           ./aecor/bootstrap/aecor -l ./aecor/ wasm_main.ae -n
 
       - name: Build WASM binary
-        run: ./build_wasm.sh
+        run: bash ./build_wasm.sh
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@4.1.0

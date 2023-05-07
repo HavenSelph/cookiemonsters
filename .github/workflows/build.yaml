@@ -26,7 +26,7 @@ jobs:
       - name: Checkout tools repo
         uses: actions/checkout@v3
         with:
-          ref: 9d868316b9eae0c70df7fc72b3033db12b304422
+          ref: c372b918a013f064ff6bc671e845401b1e9c164a
           repository: havenselph/aecor
           path: aecor
 

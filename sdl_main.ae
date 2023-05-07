@@ -1,0 +1,15 @@
+use "@/monsta_cookie.ae"
+
+def main() {
+    init()
+    setup()
+    while true {
+        let t = frame_start()
+        if not loop(t) {
+            break
+        }
+        frame_end(t)
+    }
+    print("Exiting...")
+    return 0
+}

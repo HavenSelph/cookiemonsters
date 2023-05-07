@@ -1,0 +1,275 @@
+use "lib/daecor/all.ae"
+use "lib/vector.ae"
+use "lib/math.ae"
+
+def Vector::clear(&this) {
+  for let i = 0; i < .size; i += 1 {
+      free(.data[i])
+  }
+  .size = 0
+}
+
+const cookie_scale_d = 0.05
+const chip_scale = 0.05
+const chip_vel = 5.0
+const monsta_scale = 0.1
+const spork_scale = 0.2
+
+const spawn_chance_d = 0.01
+const spawn_chances = 2
+const chips_exploded = 50
+const vel_min = 0.5
+const vel_max_d = 2.0
+
+const score_inc = 50
+const chip_score_inc = 1
+let score = 0
+let top_score = 0
+
+let texts: &Vector
+
+struct TextElement {
+  text: string
+  pos: Vec2i
+  life: i32
+}
+
+def TextElement::new(text: string, pos: Vec2i, lifetime: i32): &TextElement {
+  let t = calloc(1, sizeof(TextElement)) as &TextElement
+  t.text = text
+  t.pos = pos
+  t.life = lifetime
+  return t
+}
+
+def printAt(text: string, pos: Vec2i, lifetime: f32) {
+  texts.push(TextElement::new(text, pos, sec_to_frames_f(lifetime)))
+}
+
+def printCenteredAt(text: string, pos: Vec2i, lifetime: f32) {
+  let size = get_size_for_text(text)
+  printAt(text, pos.sub(size.divi(2)), lifetime)
+}
+
+def update_screen() {
+  for let x = texts.size-1; x != -1; x -= 1 {
+    let elem = texts.at(x) as &TextElement
+    elem.life -= 1
+    if (elem.life == 0) {
+      texts.pop_at(x)
+      continue
+    }
+    draw_text(elem.text, elem.pos)
+  }
+}
+
+let enemies: &Vector
+let chips: &Vector
+let window_size: Vec2f
+let background: &Image
+let cookie: &Image
+let chip: &Image
+let monsta: &Image
+let spork: &Image
+let pew: &Sound
+
+let cookie_scale = cookie_scale_d
+let spawn_chance = spawn_chance_d
+let vel_max = vel_max_d
+let game_over = false
+
+struct Chip {
+  pos: Vec2f,
+  vel: Vec2f
+}
+
+def Chip::new(pos: Vec2f, vel: Vec2f): &Chip {
+  let chip = calloc(1, sizeof(Chip)) as &Chip;
+  chip.pos = pos
+  chip.vel = vel
+  return chip
+}
+
+def Chip::move(&this) {
+  .pos = .pos.add(.vel)
+}
+
+def Chip::draw(&this) {
+  chip.draw_centered_t(.pos.to_i(), chip_scale, .vel.radians()+PI/2.0)
+}
+
+struct Enemy {
+  pos: Vec2f,
+  vel: f32
+}
+
+def Enemy::new(pos: Vec2f, vel: f32): &Enemy {
+  let enemy = calloc(1, sizeof(Enemy)) as &Enemy;
+  enemy.pos = pos
+  enemy.vel = vel
+  return enemy
+}
+
+def Enemy::move(&this) {
+  let dir = .pos.sub(window_size.divf(2.0))
+  dir = dir.normalized().multf(.vel)
+  .pos = .pos.sub(dir)
+}
+
+def Enemy::draw(&this) {
+  monsta.draw_centered_t(
+    .pos.to_i(), monsta_scale, .pos.sub(window_size.divf(2.0)).radians()+PI/2.0
+  )
+}
+
+def Enemy::explode(&this) {
+  for let i = 0; i < chips_exploded; i += 1 {
+    let angle = i as f32 / chips_exploded as f32 * 2.0 * PI
+    chips.push(Chip::new(.pos, Vec2f::from_polar(angle, chip_vel)))
+  }
+}
+
+def spawn_enemies() {
+  for let i = 0; i < spawn_chances; i += 1 {
+    if rand01() < spawn_chance {
+      let window_size = get_window_size()
+      let pos = match randint() % 4 {
+        0 => Vec2i(0, randint() % window_size.y),
+        1 => Vec2i(window_size.x, randint() % window_size.y),
+        2 => Vec2i(randint() % window_size.x, 0),
+        else => Vec2i(randint() % window_size.x, window_size.y)
+      }
+      enemies.push(Enemy::new(pos.to_f(), rand01() * (vel_max-vel_min) + vel_min))
+      pew.play_once()
+    }
+  }
+}
+
+def setup() {
+  texts = Vector::new()
+
+  background = Image::load("./assets/wood.jpg")
+  cookie = Image::load("./assets/cookie.png")
+  chip = Image::load("./assets/chip.png")
+  monsta = Image::load("./assets/cookiemonsta.png")
+  spork = Image::load("./assets/spork.png")
+  pew = Sound::load("./assets/pew.wav")
+
+  enemies = Vector::new()
+  chips = Vector::new()
+}
+
+def loop(t: i32): bool {
+  if game_over {
+    SDL::delay(5000)
+    texts.clear()
+    enemies.clear()
+    chips.clear()
+    game_over = false
+    if score > top_score {
+      top_score = score
+    }
+    score = 0
+    cookie_scale = cookie_scale_d
+    spawn_chance = spawn_chance_d
+    vel_max = vel_max_d
+  }
+  window_size = get_window_size().to_f()
+  let mouse_pos = mouse.pos().to_f()
+
+  // Draw background
+  background.draw_rect(
+    Rect(0, 0, window_size.x as i32, window_size.y as i32)
+  )
+
+  // Draw the cookie
+  cookie.draw_centered_t(
+    window_size.divf(2.0).to_i(), cookie_scale, 0.0
+  )
+
+  // Draw enemies
+  for let i = 0; i < enemies.size; i += 1 {
+    let enemy = enemies.at(i) as &Enemy
+    enemy.move()
+    enemy.draw()
+  }
+
+  // Draw the chips
+  for let i = 0; i < chips.size; i += 1 {
+    let chip = chips.at(i) as &Chip
+    chip.move()
+    chip.draw()
+  }
+
+  // Draw a circle around the enemy
+  // for let i = 0; i < enemies.size; i += 1 {
+  //   let enemy = enemies.at(i) as &Enemy
+  //   set_color(Color(220, 50, 0, 1))
+  //   )
+  // }
+
+  
+  // Draw the spork
+  let dir = mouse_pos.sub(window_size.divf(2.0))
+  let angle = dir.radians()
+  
+  spork.draw_centered_t(
+    mouse_pos.to_i(), spork_scale, angle+PI/2.0
+  )
+
+  // Draw circle around spork tip
+  let spork_tip = mouse_pos.add(dir.normalized().multf(spork_scale*(spork.height as f32/2.2)))
+  // draw_circle(spork_tip, 10)
+  
+  // Handle collisions
+  let cookie_pos = window_size.divf(2.0)
+  let cookie_rad = (cookie.width as f32 * cookie_scale / 2.4)
+
+  for let i = enemies.size-1; i >= 0; i -= 1 {
+    let enemy = enemies.at(i) as &Enemy
+    let rad = (monsta.width as f32 * monsta_scale / 3.0)
+    if (10.0-rad)*(10.0-rad) <= (spork_tip.x - enemy.pos.x)*(spork_tip.x - enemy.pos.x) + (spork_tip.y - enemy.pos.y)*(spork_tip.y - enemy.pos.y) <= (10.0+rad)*(10.0+rad) {
+      let dist = enemy.pos.sub(cookie_pos).length()
+      dist = dist / window_size.x
+      println(`{dist}`)
+      enemy.explode()
+      enemies.pop_at(i)
+      score += (score_inc as f32 * dist) as i32
+    }
+    if (cookie_rad-rad)*(cookie_rad-rad) <= (cookie_pos.x - enemy.pos.x)*(cookie_pos.x - enemy.pos.x) + (cookie_pos.y - enemy.pos.y)*(cookie_pos.y - enemy.pos.y) <= (cookie_rad+rad)*(cookie_rad+rad) {
+      printCenteredAt("GAME OVER!", cookie_pos.to_i(), -1.0)
+      game_over = true
+    }
+  }
+
+  // Handle chip collisions
+  let rad = (chip.width as f32 * chip_scale / 2.0)
+  for let i = chips.size-1; i >= 0; i -= 1 {
+    let chip = chips.at(i) as &Chip
+    if not is_in_window(chip.pos.to_i()) {
+      chips.pop_at(i)
+      continue
+    }
+    if (cookie_rad-rad)*(cookie_rad-rad) <= (cookie_pos.x - chip.pos.x)*(cookie_pos.x - chip.pos.x) + (cookie_pos.y - chip.pos.y)*(cookie_pos.y - chip.pos.y) <= (cookie_rad+rad)*(cookie_rad+rad) {
+      cookie_scale *= 1.002
+      spawn_chance *= 1.0005
+      vel_max *= 1.0005
+      score += chip_score_inc
+      chips.pop_at(i)
+    }
+  }
+
+  
+  
+  update_screen()
+  spawn_enemies()
+
+  if keys.pressed(Key::Escape) {
+    return false
+  }
+
+  let score_text = `Top Score: {top_score} | Current Score: {score}`
+  draw_text(score_text, Vec2i(10, 10))
+  free(score_text)  
+  return true
+}
